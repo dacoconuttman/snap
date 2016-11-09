@@ -58,6 +58,7 @@ template <class PGraph> void SavePajek(const PGraph& Graph, const TStr& OutFNm, 
 template <class PGraph> void SaveMatlabSparseMtx(const PGraph& Graph, const TStr& OutFNm);
 /// Save a graph in GraphVizp .DOT format. ##SaveGViz_NIdColorH
 template<class PGraph> void SaveGViz(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc=TStr(), const bool& NodeLabels=false, const TIntStrH& NIdColorH=TIntStrH());
+template<class PGraph> void SaveGViz2(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc=TStr(), const bool& NodeLabels=false, const bool& WeightLabels=false, const TIntStrH& NIdColorH=TIntStrH());
 /// Save a graph in GraphVizp .DOT format.  ##SaveGViz_NIdLabelH
 template<class PGraph> void SaveGViz(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc, const TIntStrH& NIdLabelH);
 
@@ -153,7 +154,7 @@ PGraph LoadConnList(const TStr& InFNm) {
 }
 
 /// Loads Whitespace separated file of several columns: <source node id> <destination node id1> <destination node id2>, with a mapping of strings to node IDs. ##LoadConnListStr
-template <class PGraph> 
+template <class PGraph>
 PGraph LoadConnListStr(const TStr& InFNm, TStrHash<TInt>& StrToNIdH) {
   TSsParser Ss(InFNm, ssfWhiteSep, true, true, true);
   PGraph Graph = PGraph::TObj::New();
@@ -182,7 +183,7 @@ PGraph LoadPajek(const TStr& InFNm) {
   while (Ss.Next()) {
     Ss.ToLc();
     if (Ss.Len()>0 && Ss[0][0] == '%') { continue; } // comment
-    if (strstr(Ss[0], "*arcslist")!=NULL || strstr(Ss[0],"*edgeslist")!=NULL) { EdgeList=false; break; } 
+    if (strstr(Ss[0], "*arcslist")!=NULL || strstr(Ss[0],"*edgeslist")!=NULL) { EdgeList=false; break; }
     if (strstr(Ss[0], "*arcs")!=NULL || strstr(Ss[0],"*edges")!=NULL) { break; } // arcs are directed, edges are undirected
     Graph->AddNode(Ss.GetInt(0));
   }
@@ -207,7 +208,7 @@ PGraph LoadPajek(const TStr& InFNm) {
 template <class PGraph>
 void SaveEdgeList(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc) {
   FILE *F = fopen(OutFNm.CStr(), "wt");
-  if (HasGraphFlag(typename PGraph::TObj, gfDirected)) { fprintf(F, "# Directed graph: %s \n", OutFNm.CStr()); } 
+  if (HasGraphFlag(typename PGraph::TObj, gfDirected)) { fprintf(F, "# Directed graph: %s \n", OutFNm.CStr()); }
   else { fprintf(F, "# Undirected graph (each unordered pair of nodes is saved once): %s\n", OutFNm.CStr()); }
   if (! Desc.Empty()) { fprintf(F, "# %s\n", Desc.CStr()); }
   fprintf(F, "# Nodes: %d Edges: %d\n", Graph->GetNodes(), Graph->GetEdges());
@@ -373,6 +374,53 @@ void SaveGViz(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc, const b
       for (int e = 0; e < NI.GetOutDeg(); e++) {
         if (! IsDir && NI.GetId() > NI.GetOutNId(e)) { continue; }
         fprintf(F, "  %d %s %d;\n", NI.GetId(), IsDir?"->":"--", NI.GetOutNId(e));
+      }
+    }
+  }
+  if (! Desc.Empty()) {
+    fprintf(F, "  label = \"\\n%s\\n\";", Desc.CStr());
+    fprintf(F, "  fontsize=24;\n");
+  }
+  fprintf(F, "}\n");
+  fclose(F);
+}
+
+template<class PGraph>
+void SaveGViz2(const PGraph& Graph, const TStr& OutFNm, const TStr& Desc, const bool& NodeLabels, const bool& WeightLabels, const TIntStrH& NIdColorH) {
+  const bool IsDir = HasGraphFlag(typename PGraph::TObj, gfDirected);
+  FILE *F = fopen(OutFNm.CStr(), "wt");
+  if (! Desc.Empty()) fprintf(F, "/*****\n%s\n*****/\n\n", Desc.CStr());
+  if (IsDir) { fprintf(F, "digraph G {\n"); } else { fprintf(F, "graph G {\n"); }
+  fprintf(F, "  graph [splines=false overlap=false]\n"); //size=\"12,10\" ratio=fill
+  // node  [width=0.3, height=0.3, label=\"\", style=filled, color=black]
+  // node  [shape=box, width=0.3, height=0.3, label=\"\", style=filled, fillcolor=red]
+  fprintf(F, "  node  [shape=ellipse, width=0.3, height=0.3%s]\n", NodeLabels?"":", label=\"\"");
+  // node colors
+  //for (int i = 0; i < NIdColorH.Len(); i++) {
+  for (typename PGraph::TObj::TNodeI NI = Graph->BegNI(); NI < Graph->EndNI(); NI++) {
+    if (NIdColorH.IsKey(NI.GetId())) {
+      fprintf(F, "  %d [style=filled, fillcolor=\"%s\"];\n", NI.GetId(), NIdColorH.GetDat(NI.GetId()).CStr()); }
+    else {
+      fprintf(F, "  %d ;\n", NI.GetId());
+    }
+  }
+  // edges
+  for (typename PGraph::TObj::TNodeI NI = Graph->BegNI(); NI < Graph->EndNI(); NI++) {
+    if (NI.GetOutDeg()==0 && NI.GetInDeg()==0 && !NIdColorH.IsKey(NI.GetId())) {
+      fprintf(F, "%d;\n", NI.GetId()); }
+    else {
+      for (int e = 0; e < NI.GetOutDeg(); e++) {
+        if (! IsDir && NI.GetId() > NI.GetOutNId(e)) { continue; }
+        if (WeightLabels){
+          TInt src(NI.GetId());
+          TInt dst(TInt(NI.GetOutNId(e)));
+          TInt val;
+          TStr id("weight");
+          Graph->GetSAttrDatE(src, dst, id, val);
+          fprintf(F, "  %d %s %d [label=%d];\n", NI.GetId(), IsDir?"->":"--", NI.GetOutNId(e), val.Val);
+        }else{
+          fprintf(F, "  %d %s %d;\n", NI.GetId(), IsDir?"->":"--", NI.GetOutNId(e));
+        }
       }
     }
   }

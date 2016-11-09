@@ -41,4 +41,3 @@ TStr GVizGetLayoutStr(const TGVizLayout& Layout) {
 
 } // namespace TSnapDetail
 } // namespace TSnap
-
